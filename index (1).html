@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ARENA CLASH｜4人対戦3Dバトル</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{margin:0;height:100%;overflow:hidden;background:#0b0a1e;color:#fff;touch-action:none;overscroll-behavior:none;
+  font-family:'Hiragino Sans','Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+#hud{position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;display:flex;gap:6px;padding:6px;justify-content:center;pointer-events:none}
+.pc{flex:1;max-width:240px;background:#000a;border:2px solid var(--c);border-radius:8px;padding:4px 8px;font-size:12px}
+.pc b{color:var(--c)}
+.lv{float:right;color:var(--c);letter-spacing:1px}
+.bar{height:8px;background:#000b;border-radius:4px;margin-top:3px;overflow:hidden}
+.bar i{display:block;height:100%}
+.hp{background:#4be07a}.st{background:#ffd34a}
+.pc.dead{opacity:.35}
+.pc.pw{box-shadow:0 0 12px #ff6a2a}
+
+#msg{position:fixed;inset:0;display:grid;place-items:center;white-space:pre;text-align:center;pointer-events:none;
+  font-size:min(14vw,90px);font-weight:900;line-height:1.1;color:var(--c,#fff);text-shadow:0 4px 0 #000,0 0 30px var(--c,#fff)}
+#msg.v{animation:pop .6s cubic-bezier(.2,1.6,.4,1)}
+@keyframes pop{from{transform:scale(.2);opacity:0}}
+
+#zone{position:fixed;left:0;bottom:0;width:48%;height:62%;z-index:5}
+#base{position:fixed;left:110px;top:calc(100% - 110px);width:120px;height:120px;border-radius:50%;
+  transform:translate(-50%,-50%);border:3px solid #fff6;background:#fff1;opacity:.4;pointer-events:none;z-index:4}
+#knob{position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px 0 0 -25px;border-radius:50%;background:#fffa}
+#btns{position:fixed;right:calc(20px + env(safe-area-inset-right,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));
+  width:230px;height:230px;pointer-events:none;z-index:6}
+.b{position:absolute;width:76px;height:76px;border-radius:50%;border:3px solid #fff8;color:#fff;font:700 15px inherit;
+  pointer-events:auto;touch-action:none;background:#2e6bd2cc}
+.b.big{width:104px;height:104px;right:0;bottom:0;font-size:18px;background:#d03a2fcc}
+#bB{right:114px;bottom:0}
+#bC{right:40px;bottom:118px;background:#2aa05acc}
+.b.on{transform:scale(.92);filter:brightness(1.4)}
+
+#menu{position:fixed;inset:0;display:none;place-items:center;background:#0b0a1ee6;z-index:20;padding:16px}
+#menu.on{display:grid}
+.card{max-width:540px;text-align:center;background:#211d44;border:3px solid #f2c14e;border-radius:10px;padding:22px}
+.card h1{margin:0 0 8px;color:#f2c14e;font-size:2.2rem;letter-spacing:.06em}
+.card button{font:700 1rem inherit;color:#fff;background:#3b3580;border:2px solid #6a5acd;border-radius:6px;padding:8px 16px;margin:4px;cursor:pointer}
+.card button.sel{background:#f2c14e;color:#241a00;border-color:#f2c14e}
+#start{display:block;margin:12px auto;padding:14px 36px;font-size:1.2rem;background:#f2c14e;color:#241a00;border-color:#f2c14e}
+.help{font-size:.78rem;color:#b9b2e6;line-height:1.7}
+@media(max-height:480px){.card{padding:12px}.card h1{font-size:1.5rem}.help{display:none}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="msg"></div>
+<div id="zone"></div>
+<div id="base"><div id="knob"></div></div>
+<div id="btns">
+  <button id="bC" class="b">回避</button>
+  <button id="bB" class="b">射撃</button>
+  <button id="bA" class="b big">攻撃</button>
+</div>
+<div id="menu" class="on">
+  <div class="card">
+    <h1 id="mt">ARENA CLASH</h1>
+    <p id="ms"></p>
+    <div id="cnt">人数
+      <button data-n="2">2</button><button data-n="3">3</button><button data-n="4" class="sel">4</button>
+    </div>
+    <button id="start">バトル開始</button>
+    <p class="help">左スティック＝移動／攻撃＝近接（大ダメージ・隙大・飛び道具を消せる）／射撃＝遠距離／回避＝無敵ダッシュ<br>
+    P1はタッチ・キーボード（WASD＋J/K/L）、P2〜P4はBluetoothパッド。つながっていない枠はCPUが担当します。</p>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+// ===== 定数 =====
+const A = 20, R = 0.5, STEP = 0.7;               // アリーナ半幅 / プレイヤー半径 / 乗り越え可能な段差
+const COL = [0x4da3ff, 0xff5d6c, 0x58e08a, 0xffc84a];
+const SP = [[-16, -16], [16, 16], [16, -16], [-16, 16]];   // スポーン位置
+const $ = id => document.getElementById(id);
+const hex = c => '#' + c.toString(16).padStart(6, '0');
+
+// ===== Three.js セットアップ =====
+const renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0a1e);
+scene.fog = new THREE.Fog(0x0b0a1e, 60, 130);
+const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+function resize() {
+  const w = innerWidth, h = innerHeight, s = Math.max(1, 1.5 / (w / h));
+  renderer.setSize(w, h, false);
+  cam.aspect = w / h;
+  cam.position.set(0, 36 * s, 25 * s);
+  cam.lookAt(0, 0, 0);
+  cam.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334466, 0.95));
+const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(10, 30, 12); scene.add(sun);
+
+// ===== ステージ（プリミティブのみ） =====
+const boxes = [];   // {x,z,hx,hz,h} 天面の高さh。段差(乗れる)や柱(乗れない)を同じ仕組みで扱う
+function addBox(x, z, w, d, h, color) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+  m.position.set(x, h / 2, z); scene.add(m);
+  boxes.push({ x, z, hx: w / 2, hz: d / 2, h });
+}
+const floor = new THREE.Mesh(new THREE.BoxGeometry(A * 2, 1, A * 2), new THREE.MeshLambertMaterial({ color: 0x24204f }));
+floor.position.y = -0.5; scene.add(floor);
+const grid = new THREE.GridHelper(A * 2, 20, 0x6a5acd, 0x3a3370); grid.position.y = 0.02; scene.add(grid);
+addBox(0, 0, 14, 14, 0.6, 0x3b3a78);                 // 中央の段差(1段目)
+addBox(0, 0, 6, 6, 1.2, 0x5a4fb0);                   // 2段目
+for (const sx of [-1, 1]) for (const sz of [-1, 1]) addBox(sx * 12, sz * 12, 2.4, 2.4, 4, 0x8a3b6b);  // 柱
+addBox(-15, 0, 3, 6, 1.4, 0x4a4a6a); addBox(15, 0, 3, 6, 1.4, 0x4a4a6a);  // 遮蔽物
+
+function groundH(x, z) {
+  let g = (Math.abs(x) <= A && Math.abs(z) <= A) ? 0 : -Infinity;
+  for (const b of boxes) if (Math.abs(x - b.x) < b.hx && Math.abs(z - b.z) < b.hz && b.h > g) g = b.h;
+  return g;
+}
+function blocked(x, z, y) {
+  for (const b of boxes) if (b.h > y + STEP && Math.abs(x - b.x) < b.hx + R && Math.abs(z - b.z) < b.hz + R) return true;
+  return false;
+}
+function moveBy(p, dx, dz) {
+  if (!blocked(p.x + dx, p.z, p.y)) p.x += dx;
+  if (!blocked(p.x, p.z + dz, p.y)) p.z += dz;
+}
+
+// ===== キャラクター / 状態 =====
+function makeChar(color) {
+  const g = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.1, 10), mat); body.position.y = 0.65;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), new THREE.MeshLambertMaterial({ color: 0xffe0c0 })); head.position.y = 1.5;
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.2), new THREE.MeshBasicMaterial({ color: 0x111111 })); visor.position.set(0, 1.55, 0.25);
+  const arm = new THREE.Group(); arm.position.set(0.55, 1.0, 0);
+  const sword = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 1.5), new THREE.MeshLambertMaterial({ color: 0xdfe8ff, emissive: 0x334466 }));
+  sword.position.z = 0.8; arm.add(sword);
+  g.add(body, head, visor, arm); g.userData = { arm, mat };
+  return g;
+}
+const projGeo = new THREE.SphereGeometry(0.24, 8, 8);
+let P = [], proj = [], items = [], state = 'menu', nP = 4, time = 0, itemT = 4, rdy = 0, winner = null;
+
+function newPlayer(i) {
+  const p = {
+    i, color: COL[i], x: SP[i][0], z: SP[i][1], y: 0, vy: 0, face: Math.atan2(-SP[i][0], -SP[i][1]),
+    hp: 100, sta: 100, stR: 0, lives: 3, ko: 0, alive: true, respT: 0, invT: 0, flash: 0, buff: 0,
+    shotCd: 0, dCd: 0, cd: 0, st: 'idle', stT: 0, hitDone: true, dx: 0, dz: 0, kx: 0, kz: 0,
+    lastBy: -1, lastT: 0, cpu: i > 0, pa: false, pc: false,
+    in: { mx: 0, mz: 0 }, held: { b: false }, buf: { a: 0, b: 0, c: 0 }, ai: { t: 0, rt: 0, str: 1, mode: 'close' }
+  };
+  p.mesh = makeChar(p.color); scene.add(p.mesh);
+  p.pm = new THREE.MeshBasicMaterial({ color: p.color });
+  return p;
+}
+
+// ===== 戦闘 =====
+function assist(p, range, cone) {          // 人間操作の向きを近くの敵へ補正（タッチ操作の狙いやすさ用）
+  let best = null, bd = cone;
+  for (const q of P) {
+    if (q === p || !q.alive) continue;
+    const dx = q.x - p.x, dz = q.z - p.z;
+    if (Math.hypot(dx, dz) > range) continue;
+    const a = Math.atan2(dx, dz), df = Math.abs(Math.atan2(Math.sin(a - p.face), Math.cos(a - p.face)));
+    if (df < bd) { bd = df; best = a; }
+  }
+  if (best !== null) p.face = best;
+}
+function hit(q, by, dmg, dx, dz, kb) {
+  if (!q.alive || q.invT > 0 || q.st === 'dodge') return false;
+  q.hp -= dmg; q.flash = 0.12; q.lastBy = by.i; q.lastT = 4;
+  const m = kb * (1 + (1 - Math.max(q.hp, 0) / 100) * 0.8);   // HPが減るほど吹っ飛ぶ
+  q.kx = dx * m; q.kz = dz * m;
+  if (q.st === 'melee' && dmg >= 20) q.st = 'idle';             // 近接の隙に食らうと中断
+  if (q.hp <= 0) ko(q, by);
+  return true;
+}
+function ko(q, by) {
+  if (!q.alive) return;
+  q.alive = false; q.lives--; q.respT = 2; q.mesh.visible = false;
+  if (by && by !== q) by.ko++;
+  const left = P.filter(x => x.lives > 0);
+  if (left.length <= 1 && state === 'play') end(left[0] || by);
+}
+function respawn(p) {
+  p.x = SP[p.i][0]; p.z = SP[p.i][1]; p.y = 0; p.vy = 0; p.hp = 100; p.sta = 100;
+  p.alive = true; p.invT = 2; p.st = 'idle'; p.kx = p.kz = 0; p.buff = 0; p.mesh.visible = true;
+}
+function doMelee(p) {
+  p.hitDone = true;
+  const fx = Math.sin(p.face), fz = Math.cos(p.face), dmg = 25 * (p.buff > 0 ? 1.5 : 1);
+  for (const q of P) {
+    if (q === p || !q.alive) continue;
+    const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
+    if (d < 2.6 && (d < 0.9 || (dx * fx + dz * fz) / d > 0.57) && Math.abs(q.y - p.y) < 1.6) hit(q, p, dmg, fx, fz, 22);
+  }
+  for (const r of proj) if (r.own !== p && Math.hypot(r.x - p.x, r.z - p.z) < 3) r.life = 0;   // 飛び道具を斬り消す
+}
+function shoot(p) {
+  if (!p.cpu) assist(p, 16, 0.6);
+  const fx = Math.sin(p.face), fz = Math.cos(p.face), m = new THREE.Mesh(projGeo, p.pm);
+  scene.add(m);
+  proj.push({ x: p.x + fx * 0.8, z: p.z + fz * 0.8, y: p.y + 1.1, vx: fx * 22, vz: fz * 22, own: p, life: 1.6, m, dmg: 8 * (p.buff > 0 ? 1.5 : 1) });
+  p.sta -= 8; p.stR = 0.6; p.shotCd = 0.45; p.buf.b = 0;
+}
+function physics(p, dt) {
+  const g = p.y < -0.4 ? -Infinity : groundH(p.x, p.z);   // 落下中は復帰不可
+  if (p.vy <= 0 && p.y <= g + 0.02) { p.y = g; p.vy = 0; }
+  else { p.vy -= 32 * dt; p.y += p.vy * dt; if (p.y < g) { p.y = g; p.vy = 0; } }
+  if (p.y < -14) ko(p, p.lastT > 0 ? P[p.lastBy] : null);   // リングアウト
+}
+
+function upd(p, dt) {
+  if (p.lives <= 0) return;
+  if (!p.alive) { p.respT -= dt; if (p.respT <= 0) respawn(p); return; }
+  for (const k in p.buf) p.buf[k] = Math.max(0, p.buf[k] - dt);
+  p.invT = Math.max(0, p.invT - dt); p.flash -= dt; p.buff -= dt; p.shotCd -= dt; p.dCd -= dt; p.lastT -= dt; p.stR -= dt;
+  if (p.stR <= 0) p.sta = Math.min(100, p.sta + 24 * dt);
+  const falling = p.y < -0.4;
+  if (p.cpu) ai(p, dt);
+  let mx = p.in.mx, mz = p.in.mz; const ml = Math.hypot(mx, mz);
+  if (ml > 1) { mx /= ml; mz /= ml; }
+  if (falling) { /* 操作不能 */ }
+  else if (p.st === 'dodge') {
+    p.stT += dt; moveBy(p, p.dx * 20 * dt, p.dz * 20 * dt);
+    if (p.stT >= 0.22) { p.st = 'idle'; p.dCd = 0.3; }
+  } else if (p.st === 'melee') {
+    p.stT += dt;
+    if (p.stT >= 0.12 && !p.hitDone && p.stT < 0.26) doMelee(p);
+    if (p.stT >= 0.7) p.st = 'idle';
+    moveBy(p, mx * 1.5 * dt, mz * 1.5 * dt);
+  } else {
+    if (ml > 0.1) { moveBy(p, mx * 7 * dt, mz * 7 * dt); if (!p.cpu) p.face = Math.atan2(mx, mz); }
+    if (p.buf.c > 0 && p.dCd <= 0 && p.sta >= 25) {
+      p.dx = ml > 0.1 ? mx / ml : -Math.sin(p.face); p.dz = ml > 0.1 ? mz / ml : -Math.cos(p.face);
+      p.st = 'dodge'; p.stT = 0; p.sta -= 25; p.stR = 0.8; p.buf.c = 0;
+    } else if (p.buf.a > 0 && p.sta >= 15) {
+      if (!p.cpu) assist(p, 4, 1.0);
+      p.st = 'melee'; p.stT = 0; p.hitDone = false; p.sta -= 15; p.stR = 0.8; p.buf.a = 0;
+    } else if ((p.held.b || p.buf.b > 0) && p.shotCd <= 0 && p.sta >= 8) shoot(p);
+  }
+  if (Math.abs(p.kx) + Math.abs(p.kz) > 0.2) { moveBy(p, p.kx * dt, p.kz * dt); const f = Math.exp(-5 * dt); p.kx *= f; p.kz *= f; }
+  physics(p, dt);
+}
+function separate() {
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+    const a = P[i], b = P[j]; if (!a.alive || !b.alive) continue;
+    const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
+    if (d < 0.9 && d > 0.001) { const o = (0.9 - d) / 2, nx = dx / d, nz = dz / d; moveBy(a, -nx * o, -nz * o); moveBy(b, nx * o, nz * o); }
+  }
+}
+function updProj(dt) {
+  for (let i = proj.length - 1; i >= 0; i--) {
+    const r = proj[i]; r.x += r.vx * dt; r.z += r.vz * dt; r.life -= dt;
+    let dead = r.life <= 0 || Math.abs(r.x) > A + 6 || Math.abs(r.z) > A + 6;
+    if (!dead) for (const b of boxes) if (r.y < b.h && Math.abs(r.x - b.x) < b.hx && Math.abs(r.z - b.z) < b.hz) { dead = true; break; }
+    if (!dead) for (const q of P) {
+      if (q === r.own || !q.alive) continue;
+      const dy = r.y - q.y;
+      if (Math.hypot(q.x - r.x, q.z - r.z) < 0.8 && dy > 0 && dy < 1.9 && hit(q, r.own, r.dmg, r.vx / 22, r.vz / 22, 6)) { dead = true; break; }
+    }
+    r.m.position.set(r.x, r.y, r.z);
+    if (dead) { scene.remove(r.m); proj.splice(i, 1); }
+  }
+}
+
+// ===== アイテム =====
+function spawnItem() {
+  if (items.length >= 3) return;
+  for (let t = 0; t < 20; t++) {
+    const x = (Math.random() * 2 - 1) * 16, z = (Math.random() * 2 - 1) * 16;
+    if (boxes.some(b => b.h > 1.3 && Math.abs(x - b.x) < b.hx + 1.5 && Math.abs(z - b.z) < b.hz + 1.5)) continue;
+    const type = Math.random() < 0.55 ? 'heal' : 'power', c = type === 'heal' ? 0x44ff88 : 0xff6a2a;
+    const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.5), new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.5 }));
+    scene.add(m); items.push({ x, z, g: groundH(x, z), type, m, age: 0 }); return;
+  }
+}
+function updItems(dt) {
+  itemT -= dt; if (itemT <= 0) { itemT = 6 + Math.random() * 3; spawnItem(); }
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]; it.age += dt; it.m.rotation.y += dt * 2;
+    it.m.position.set(it.x, it.g + 1 + Math.sin(it.age * 3) * 0.2, it.z);
+    let used = false;
+    for (const p of P) if (p.alive && Math.hypot(p.x - it.x, p.z - it.z) < 1.2 && Math.abs(p.y - it.g) < 1.5) {
+      if (it.type === 'heal') p.hp = Math.min(100, p.hp + 35); else p.buff = 10;
+      used = true; break;
+    }
+    if (used || it.age > 25) { scene.remove(it.m); items.splice(i, 1); }
+  }
+}
+
+// ===== CPU AI =====
+function ai(p, dt) {
+  const a = p.ai; a.t -= dt; a.rt -= dt; p.cd -= dt; p.in.mx = p.in.mz = 0; p.held.b = false;
+  let tg = null, bd = 1e9;
+  for (const q of P) if (q !== p && q.alive) { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; tg = q; } }
+  if (!tg) return;
+  const d = bd || 1, ux = (tg.x - p.x) / d, uz = (tg.z - p.z) / d;
+  if (a.t <= 0) {
+    a.t = 0.3 + Math.random() * 0.5; a.str = Math.random() < 0.5 ? -1 : 1;
+    a.mode = d < 3 ? (Math.random() < 0.75 ? 'fight' : 'back') : (Math.random() < 0.6 ? 'range' : 'close');
+  }
+  let mx, mz;
+  if (Math.abs(p.x) > 16.5 || Math.abs(p.z) > 16.5) { const c = Math.hypot(p.x, p.z) || 1; mx = -p.x / c; mz = -p.z / c; }   // 端を避ける
+  else if (a.mode === 'close' || a.mode === 'fight') { mx = ux; mz = uz; }
+  else if (a.mode === 'back') { mx = -ux; mz = -uz; }
+  else { const k = d > 8 ? 0.8 : -0.2; mx = -uz * a.str + ux * k; mz = ux * a.str + uz * k; }
+  const l = Math.hypot(mx, mz) || 1; p.in.mx = mx / l * 0.9; p.in.mz = mz / l * 0.9;
+  p.face = Math.atan2(ux, uz);
+  if (d < 2.3 && a.mode === 'fight' && p.cd <= 0) { p.buf.a = 0.1; p.cd = 0.9 + Math.random() * 0.8; }
+  else if (d > 3.5 && d < 15 && Math.random() < dt * 2.2) p.held.b = true;
+  if (a.rt <= 0) {
+    a.rt = 0.25; let thr = false;
+    for (const r of proj) if (r.own !== p) {
+      const rx = r.x - p.x, rz = r.z - p.z;
+      if (rx * rx + rz * rz < 36 && rx * r.vx + rz * r.vz < 0 && Math.abs(rx * r.vz - rz * r.vx) / 22 < 1.1) thr = true;
+    }
+    if (tg.st === 'melee' && tg.stT < 0.14 && d < 3.2) thr = true;
+    if (thr && Math.random() < 0.55) { p.buf.c = 0.1; p.in.mx = -uz * a.str; p.in.mz = ux * a.str; }
+  }
+}
+
+// ===== 入力（タッチ / キーボード / ゲームパッド） =====
+const T = { sx: 0, sy: 0, hb: false }, K = {};
+function press(i, k) { const p = P[i]; if (p && state === 'play') p.buf[k] = 0.15; }
+const zone = $('zone'), base = $('base'), knob = $('knob'); let sid = null, ox = 0, oy = 0; const SR = 60;
+zone.addEventListener('pointerdown', e => {
+  if (sid !== null) return; sid = e.pointerId; zone.setPointerCapture(sid); ox = e.clientX; oy = e.clientY;
+  base.style.cssText = 'left:' + ox + 'px;top:' + oy + 'px;opacity:1'; knob.style.transform = '';
+});
+zone.addEventListener('pointermove', e => {
+  if (e.pointerId !== sid) return;
+  let dx = e.clientX - ox, dy = e.clientY - oy; const l = Math.hypot(dx, dy);
+  if (l > SR) { dx *= SR / l; dy *= SR / l; }
+  T.sx = dx / SR; T.sy = dy / SR; knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+});
+const stickUp = e => { if (e.pointerId !== sid) return; sid = null; T.sx = T.sy = 0; base.style.cssText = ''; knob.style.transform = ''; };
+zone.addEventListener('pointerup', stickUp); zone.addEventListener('pointercancel', stickUp);
+function bind(el, down, up) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); el.classList.add('on'); down(); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => el.addEventListener(n, () => { el.classList.remove('on'); if (up) up(); }));
+}
+bind($('bA'), () => press(0, 'a'));
+bind($('bB'), () => { T.hb = true; press(0, 'b'); }, () => { T.hb = false; });
+bind($('bC'), () => press(0, 'c'));
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase(); K[k] = true;
+  if (!e.repeat) { if (k === 'j' || k === ' ') press(0, 'a'); if (k === 'l' || k === 'shift') press(0, 'c'); if (k === 'k') press(0, 'b'); }
+  if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+});
+addEventListener('keyup', e => { K[e.key.toLowerCase()] = false; });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+function readInput() {
+  const pads = (navigator.getGamepads ? Array.from(navigator.getGamepads()) : []).filter(Boolean);
+  P.forEach((p, i) => {
+    if (i === 0) {
+      let mx = T.sx, mz = T.sy; if (Math.hypot(mx, mz) < 0.15) mx = mz = 0;
+      if (K.a || K.arrowleft) mx -= 1; if (K.d || K.arrowright) mx += 1;
+      if (K.w || K.arrowup) mz -= 1; if (K.s || K.arrowdown) mz += 1;
+      p.in.mx = mx; p.in.mz = mz; p.held.b = T.hb || !!K.k; return;
+    }
+    const g = pads[i - 1]; p.cpu = !g; if (!g) return;       // P2→1台目のパッド, P3→2台目…
+    let mx = g.axes[0] || 0, mz = g.axes[1] || 0; if (Math.hypot(mx, mz) < 0.2) mx = mz = 0;
+    p.in.mx = mx; p.in.mz = mz;
+    const B = n => !!(g.buttons[n] && g.buttons[n].pressed);
+    const a = B(0), c = B(1) || B(5);
+    if (a && !p.pa) press(i, 'a'); if (c && !p.pc) press(i, 'c'); p.pa = a; p.pc = c;
+    p.held.b = B(2) || B(7);
+  });
+}
+
+// ===== HUD / 進行 =====
+function buildHud() {
+  const h = $('hud'); h.innerHTML = '';
+  P.forEach(p => {
+    const d = document.createElement('div'); d.className = 'pc'; d.style.setProperty('--c', hex(p.color));
+    d.innerHTML = '<b></b><span class="lv"></span><div class="bar"><i class="hp"></i></div><div class="bar"><i class="st"></i></div>';
+    h.appendChild(d);
+    p.hud = { d, n: d.children[0], lv: d.children[1], hp: d.querySelector('.hp'), st: d.querySelector('.st') };
+  });
+}
+function updHud() {
+  for (const p of P) {
+    const u = p.hud;
+    u.n.textContent = 'P' + (p.i + 1) + ' ' + (p.i === 0 ? 'タッチ' : p.cpu ? 'CPU' : 'PAD') + '  KO ' + p.ko;
+    u.lv.textContent = '♥'.repeat(Math.max(0, p.lives));
+    u.hp.style.width = Math.max(0, p.hp) + '%'; u.st.style.width = p.sta + '%';
+    u.d.classList.toggle('dead', p.lives <= 0); u.d.classList.toggle('pw', p.buff > 0);
+  }
+}
+function say(t, c, cls) {
+  const m = $('msg'); if (m.textContent !== t) { m.textContent = t; m.className = cls || ''; }
+  m.style.setProperty('--c', c || '#fff');
+}
+function showMenu(title, sub) { $('mt').textContent = title; $('ms').textContent = sub; $('menu').classList.add('on'); }
+function startGame() {
+  for (const p of P) scene.remove(p.mesh);
+  for (const r of proj) scene.remove(r.m);
+  for (const i of items) scene.remove(i.m);
+  P = []; proj = []; items = []; winner = null;
+  for (let i = 0; i < nP; i++) P.push(newPlayer(i));
+  buildHud(); $('menu').classList.remove('on'); say(''); state = 'ready'; rdy = 2; itemT = 4;
+}
+function end(w) {
+  state = 'over'; winner = w || null;
+  say(w ? 'VICTORY!\nP' + (w.i + 1) : 'DRAW', w ? hex(w.color) : '#fff', 'v');
+  setTimeout(() => {
+    say(''); showMenu(w ? 'P' + (w.i + 1) + ' の勝利！' : '引き分け', P.map(p => 'P' + (p.i + 1) + (p.i > 0 && p.cpu ? '(CPU)' : '') + ' KO' + p.ko).join(' / '));
+  }, 3500);
+}
+document.querySelectorAll('#cnt button').forEach(b => b.onclick = () => {
+  nP = +b.dataset.n; document.querySelectorAll('#cnt button').forEach(x => x.classList.toggle('sel', x === b));
+});
+$('start').onclick = startGame;
+showMenu('ARENA CLASH', 'ステージから敵を突き落とし、最後の1人になれ！（各自ライフ3）');
+
+function updateMeshes() {
+  for (const p of P) {
+    const m = p.mesh, u = m.userData;
+    m.position.set(p.x, p.y, p.z); m.rotation.y = p.face;
+    let r = 0; const t = p.stT;
+    if (p.st === 'melee') r = t < 0.12 ? -1.3 * t / 0.12 : t < 0.26 ? -1.3 + 2.2 * (t - 0.12) / 0.14 : 0.9 * (1 - Math.min(1, (t - 0.26) / 0.44));
+    u.arm.rotation.x = r;
+    m.scale.y = p.st === 'dodge' ? 0.7 : 1;
+    u.mat.emissive.setHex(p.flash > 0 ? 0xffffff : p.buff > 0 ? 0x993300 : 0x000000);
+    if (p.alive) m.visible = p.invT <= 0 || Math.floor(time * 12) % 2 === 0;
+    if (state === 'over' && p === winner) { m.rotation.y = time * 4; m.position.y = Math.abs(Math.sin(time * 5)) * 0.8; }
+  }
+}
+function step(dt) {
+  if (state === 'ready') { rdy -= dt; say(rdy > 0.7 ? 'READY' : 'FIGHT!'); if (rdy <= 0) { state = 'play'; say(''); } }
+  if (state === 'play') { readInput(); for (const p of P) upd(p, dt); separate(); updProj(dt); updItems(dt); }
+  if (P.length) updHud();
+}
+let last = 0;
+function loop(t) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t; time += dt;
+  step(dt); updateMeshes(); renderer.render(scene, cam);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
