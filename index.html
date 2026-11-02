@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ARENA CLASH｜4人対戦3Dバトル</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="msg"></div>
+<div id="zone"></div>
+<div id="base"><div id="knob"></div></div>
+<div id="btns">
+  <button id="bC" class="b">回避</button>
+  <button id="bB" class="b">射撃</button>
+  <button id="bA" class="b big">攻撃</button>
+</div>
+<div id="menu" class="on">
+  <div class="card">
+    <h1 id="mt">ARENA CLASH</h1>
+    <p id="ms"></p>
+    <div id="cnt">人数
+      <button data-n="2">2</button><button data-n="3">3</button><button data-n="4" class="sel">4</button>
+    </div>
+    <button id="start">バトル開始</button>
+    <p class="help">左スティック＝移動／攻撃＝近接（大ダメージ・隙大・飛び道具を消せる）／射撃＝遠距離／回避＝無敵ダッシュ<br>
+    P1はタッチ・キーボード（WASD＋J/K/L）、P2〜P4はBluetoothパッド。つながっていない枠はCPUが担当します。</p>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
